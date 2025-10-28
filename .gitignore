@@ -1,0 +1,36 @@
+# Tệp và thư mục Node
+node_modules/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.DS_Store
+
+# Thư mục build chung cho NestJS và Next.js
+# Cần phải chỉ định đường dẫn cụ thể
+# Bỏ qua thư mục build của NestJS
+backend/dist/
+
+# Thư mục build của Next.js
+frontend/.next/
+frontend/out/
+
+# Cấu hình cache của Next.js
+.next/cache/
+
+# Môi trường editor
+.idea
+.vscode
+*.sublime-project
+*.sublime-workspace
+
+# Các file khác
+.swp
+.swo
