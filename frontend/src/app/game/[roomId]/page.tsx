@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { ArrowLeft, Users, MessageSquare, Gamepad2 } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || API_URL;
 
 // Piece types and their Vietnamese names (with emoji icons)

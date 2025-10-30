@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { LogIn, ArrowLeft, Mail, Lock } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
