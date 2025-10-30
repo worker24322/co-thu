@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { ArrowLeft, Users, MessageSquare, Gamepad2 } from 'lucide-react';
+import { getUserWithAvatar } from '@/lib/user';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || API_URL;
@@ -32,6 +33,9 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
   const [selectedPiece, setSelectedPiece] = useState<{x: number, y: number} | null>(null);
   const [currentPlayer, setCurrentPlayer] = useState<'A' | 'B'>('A');
   const [gameOver, setGameOver] = useState<{ winner: 'A' | 'B' | null } | null>(null);
+  const [selfUser, setSelfUser] = useState<{ id: string; name?: string; email?: string; avatar?: string } | null>(null);
+  const [hostUserId, setHostUserId] = useState<string | null>(null);
+  const [guestUserId, setGuestUserId] = useState<string | null>(null);
 
   // Initialize board with all pieces
   const [board, setBoard] = useState<(Piece | null)[][]>(() => {
@@ -39,31 +43,30 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
       Array.from({ length: 9 }, () => null)
     );
 
-    // Player B pieces (top side) - Row 0
+    // Player B pieces (top side)
+    // Row 0 (no pieces on traps at (2,0) and (4,0))
     initialBoard[0][0] = { type: 'lion', owner: 'B' };      // (0,0)
-    initialBoard[6][0] = { type: 'lion', owner: 'B' };       // (6,0)
-    // Row 1
-    initialBoard[0][1] = { type: 'dog', owner: 'B' };        // (0,1)
-    initialBoard[4][1] = { type: 'cat', owner: 'B' };       // (4,1)
-    initialBoard[6][1] = { type: 'elephant', owner: 'B' };   // (6,1)
+    initialBoard[6][0] = { type: 'tiger', owner: 'B' };     // (6,0)
+    // Row 1 (avoid trap at (3,1))
+    initialBoard[1][1] = { type: 'dog', owner: 'B' };       // (1,1)
+    initialBoard[5][1] = { type: 'cat', owner: 'B' };       // (5,1)
     // Row 2
     initialBoard[0][2] = { type: 'rat', owner: 'B' };       // (0,2)
     initialBoard[2][2] = { type: 'leopard', owner: 'B' };   // (2,2)
     initialBoard[4][2] = { type: 'wolf', owner: 'B' };      // (4,2)
     initialBoard[6][2] = { type: 'elephant', owner: 'B' };  // (6,2)
 
-    // Player A pieces (bottom side) - Row 6
-    initialBoard[0][6] = { type: 'elephant', owner: 'A' };   // (0,6)
+    // Player A pieces (bottom side)
+    // Row 6
+    initialBoard[0][6] = { type: 'elephant', owner: 'A' };  // (0,6)
     initialBoard[2][6] = { type: 'wolf', owner: 'A' };      // (2,6)
     initialBoard[4][6] = { type: 'leopard', owner: 'A' };   // (4,6)
     initialBoard[6][6] = { type: 'rat', owner: 'A' };       // (6,6)
-    // Row 7
+    // Row 7 (avoid trap at (3,7))
     initialBoard[1][7] = { type: 'cat', owner: 'A' };       // (1,7)
     initialBoard[5][7] = { type: 'dog', owner: 'A' };       // (5,7)
-    // Row 8
+    // Row 8 (avoid traps at (2,8) and (4,8))
     initialBoard[0][8] = { type: 'tiger', owner: 'A' };     // (0,8)
-    initialBoard[2][8] = { type: 'lion', owner: 'A' };      // (2,8)
-    initialBoard[4][8] = { type: 'lion', owner: 'A' };      // (4,8)
     initialBoard[6][8] = { type: 'lion', owner: 'A' };      // (6,8)
 
     return initialBoard;
@@ -75,6 +78,34 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
       setRoomId(resolvedParams.roomId);
     });
   }, [params]);
+
+  // Load self user
+  useEffect(() => {
+    const u = getUserWithAvatar();
+    setSelfUser(u);
+  }, []);
+
+  // Fetch room participants from list endpoint
+  useEffect(() => {
+    if (!roomId) return;
+    fetch(`${API_URL}/rooms`)
+      .then(async (res) => {
+        try {
+          const list = await res.json();
+          const room = Array.isArray(list) ? list.find((r: any) => r.id === roomId) : null;
+          if (room) {
+            setHostUserId(room.hostUserId || null);
+            setGuestUserId(room.guestUserId || null);
+          }
+        } catch {}
+      })
+      .catch(() => {});
+  }, [roomId]);
+
+  const avatarFor = (seed?: string) => {
+    const s = encodeURIComponent(seed || 'guest');
+    return `https://api.dicebear.com/7.x/identicon/svg?seed=${s}`;
+  };
 
   const socket: Socket | null = useMemo(() => {
     if (typeof window === 'undefined' || !roomId) return null;
@@ -326,6 +357,20 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
         <div className="grid grid-2 gap-6">
           {/* Game Board */}
           <div className="card p-6">
+            {/* Top player: later joiner (guest) */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <img
+                  src={guestUserId ? avatarFor(guestUserId) : avatarFor('opponent')}
+                  alt="opponent"
+                  className="w-8 h-8 rounded-full"
+                />
+                <div className="text-sm text-gray-600">
+                  {guestUserId ? `Người chơi (vào sau): ${guestUserId.slice(0,8)}...` : 'Chờ đối thủ tham gia'}
+                </div>
+              </div>
+              <span className="status-badge status-playing">Đối thủ</span>
+            </div>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
                 <Gamepad2 className="w-5 h-5" />
@@ -379,6 +424,22 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
                   'Click vào quân cờ để chọn, sau đó click ô đích để di chuyển'
                 }
               </p>
+            </div>
+
+            {/* Bottom player: always self */}
+            <div className="flex items-center justify-between mt-4">
+              <span className="status-badge status-playing">Bạn</span>
+              <div className="flex items-center gap-2">
+                <div className="text-right">
+                  <div className="text-sm font-semibold text-gray-800">{selfUser?.name || selfUser?.email || 'Bạn'}</div>
+                  <div className="text-xs text-gray-500">{selfUser?.id ? selfUser.id.slice(0,8) + '...' : ''}</div>
+                </div>
+                <img
+                  src={selfUser?.avatar || avatarFor(selfUser?.id)}
+                  alt="me"
+                  className="w-8 h-8 rounded-full"
+                />
+              </div>
             </div>
           </div>
 

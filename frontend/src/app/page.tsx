@@ -1,10 +1,22 @@
+"use client";
+
 import Image from "next/image";
 import styles from "./page.module.css";
 
 import Link from 'next/link';
 import { Gamepad2, Users, BookOpen, Trophy } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 export default function Home() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  useEffect(() => {
+    try {
+      const user = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+      setIsLoggedIn(!!user);
+    } catch {}
+  }, []);
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="container">
@@ -19,6 +31,7 @@ export default function Home() {
         </div>
 
         <div className="grid grid-3 gap-8 max-w-4xl mx-auto">
+          {!isLoggedIn && (
           <Link href="/auth/register" className="card p-8 text-center group hover:scale-105 transition-all duration-300">
             <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
               <Users className="w-8 h-8 text-white" />
@@ -26,7 +39,9 @@ export default function Home() {
             <h3 className="text-xl font-bold mb-2">Đăng Ký</h3>
             <p className="text-gray-600">Tạo tài khoản mới để bắt đầu chơi</p>
           </Link>
+          )}
 
+          {!isLoggedIn && (
           <Link href="/auth/login" className="card p-8 text-center group hover:scale-105 transition-all duration-300">
             <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-green-500 to-teal-600 rounded-full flex items-center justify-center">
               <Gamepad2 className="w-8 h-8 text-white" />
@@ -34,6 +49,7 @@ export default function Home() {
             <h3 className="text-xl font-bold mb-2">Đăng Nhập</h3>
             <p className="text-gray-600">Đăng nhập vào tài khoản của bạn</p>
           </Link>
+          )}
 
           <Link href="/lobby" className="card p-8 text-center group hover:scale-105 transition-all duration-300">
             <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-orange-500 to-red-600 rounded-full flex items-center justify-center">

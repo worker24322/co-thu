@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { setStoredUser } from '@/lib/user';
 import Link from 'next/link';
 import { LogIn, ArrowLeft, Mail, Lock } from 'lucide-react';
 
@@ -31,7 +32,7 @@ export default function LoginPage() {
       }
       
       localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      setStoredUser(data.user);
       setMessage('Đăng nhập thành công! Chuyển hướng đến trang chủ...');
       
       setTimeout(() => {
