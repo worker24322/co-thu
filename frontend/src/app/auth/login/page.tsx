@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import { setStoredUser } from '@/lib/user';
 import Link from 'next/link';
 import { LogIn, ArrowLeft, Mail, Lock } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -31,7 +32,7 @@ export default function LoginPage() {
       }
       
       localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      setStoredUser(data.user);
       setMessage('Đăng nhập thành công! Chuyển hướng đến trang chủ...');
       
       setTimeout(() => {

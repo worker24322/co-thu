@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { ArrowLeft, Users, MessageSquare, Gamepad2 } from 'lucide-react';
+import { getUserWithAvatar } from '@/lib/user';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || API_URL;
 
 // Piece types and their Vietnamese names (with emoji icons)
@@ -32,6 +33,14 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
   const [selectedPiece, setSelectedPiece] = useState<{x: number, y: number} | null>(null);
   const [currentPlayer, setCurrentPlayer] = useState<'A' | 'B'>('A');
   const [gameOver, setGameOver] = useState<{ winner: 'A' | 'B' | null } | null>(null);
+  const [timeA, setTimeA] = useState<number>(600); // seconds
+  const [timeB, setTimeB] = useState<number>(600);
+  const [selfUser, setSelfUser] = useState<{ id: string; name?: string; email?: string; avatar?: string } | null>(null);
+  const [hostUserId, setHostUserId] = useState<string | null>(null);
+  const [guestUserId, setGuestUserId] = useState<string | null>(null);
+  const [mySide, setMySide] = useState<'A' | 'B' | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const lastSoundAtRef = useRef<number>(0);
 
   // Initialize board with all pieces
   const [board, setBoard] = useState<(Piece | null)[][]>(() => {
@@ -39,31 +48,30 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
       Array.from({ length: 9 }, () => null)
     );
 
-    // Player B pieces (top side) - Row 0
+    // Player B pieces (top side)
+    // Row 0 (no pieces on traps at (2,0) and (4,0))
     initialBoard[0][0] = { type: 'lion', owner: 'B' };      // (0,0)
-    initialBoard[6][0] = { type: 'lion', owner: 'B' };       // (6,0)
-    // Row 1
-    initialBoard[0][1] = { type: 'dog', owner: 'B' };        // (0,1)
-    initialBoard[4][1] = { type: 'cat', owner: 'B' };       // (4,1)
-    initialBoard[6][1] = { type: 'elephant', owner: 'B' };   // (6,1)
+    initialBoard[6][0] = { type: 'tiger', owner: 'B' };     // (6,0)
+    // Row 1 (avoid trap at (3,1))
+    initialBoard[1][1] = { type: 'dog', owner: 'B' };       // (1,1)
+    initialBoard[5][1] = { type: 'cat', owner: 'B' };       // (5,1)
     // Row 2
     initialBoard[0][2] = { type: 'rat', owner: 'B' };       // (0,2)
     initialBoard[2][2] = { type: 'leopard', owner: 'B' };   // (2,2)
     initialBoard[4][2] = { type: 'wolf', owner: 'B' };      // (4,2)
     initialBoard[6][2] = { type: 'elephant', owner: 'B' };  // (6,2)
 
-    // Player A pieces (bottom side) - Row 6
-    initialBoard[0][6] = { type: 'elephant', owner: 'A' };   // (0,6)
+    // Player A pieces (bottom side)
+    // Row 6
+    initialBoard[0][6] = { type: 'elephant', owner: 'A' };  // (0,6)
     initialBoard[2][6] = { type: 'wolf', owner: 'A' };      // (2,6)
     initialBoard[4][6] = { type: 'leopard', owner: 'A' };   // (4,6)
     initialBoard[6][6] = { type: 'rat', owner: 'A' };       // (6,6)
-    // Row 7
+    // Row 7 (avoid trap at (3,7))
     initialBoard[1][7] = { type: 'cat', owner: 'A' };       // (1,7)
     initialBoard[5][7] = { type: 'dog', owner: 'A' };       // (5,7)
-    // Row 8
+    // Row 8 (avoid traps at (2,8) and (4,8))
     initialBoard[0][8] = { type: 'tiger', owner: 'A' };     // (0,8)
-    initialBoard[2][8] = { type: 'lion', owner: 'A' };      // (2,8)
-    initialBoard[4][8] = { type: 'lion', owner: 'A' };      // (4,8)
     initialBoard[6][8] = { type: 'lion', owner: 'A' };      // (6,8)
 
     return initialBoard;
@@ -75,6 +83,155 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
       setRoomId(resolvedParams.roomId);
     });
   }, [params]);
+
+  // Load self user
+  useEffect(() => {
+    const u = getUserWithAvatar();
+    setSelfUser(u);
+  }, []);
+
+  // Fetch room participants from list endpoint
+  useEffect(() => {
+    if (!roomId) return;
+    fetch(`${API_URL}/rooms`)
+      .then(async (res) => {
+        try {
+          const list = await res.json();
+          const room = Array.isArray(list) ? list.find((r: any) => r.id === roomId) : null;
+          if (room) {
+            setHostUserId(room.hostUserId || null);
+            setGuestUserId(room.guestUserId || null);
+            const u = JSON.parse(localStorage.getItem('user') || 'null');
+            if (u?.id) {
+              if (room.hostUserId === u.id) setMySide('A');
+              else if (room.guestUserId === u.id) setMySide('B');
+              else setMySide(null);
+            }
+          }
+        } catch {}
+      })
+      .catch(() => {});
+  }, [roomId]);
+
+  const avatarFor = (seed?: string) => {
+    const s = encodeURIComponent(seed || 'guest');
+    return `https://api.dicebear.com/7.x/identicon/svg?seed=${s}`;
+  };
+
+  function formatTime(totalSeconds: number): string {
+    const m = Math.max(0, Math.floor(totalSeconds / 60));
+    const s = Math.max(0, totalSeconds % 60);
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+
+  // Turn timer: counts down only for the side whose turn it is
+  useEffect(() => {
+    if (!roomId || gameOver) return;
+    const id = setInterval(() => {
+      if (currentPlayer === 'A') {
+        setTimeA((t) => Math.max(0, t - 1));
+      } else {
+        setTimeB((t) => Math.max(0, t - 1));
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [roomId, currentPlayer, gameOver]);
+
+  // Detect flag fall (time out)
+  useEffect(() => {
+    if (gameOver) return;
+    if (timeA <= 0) {
+      setGameOver({ winner: 'B' });
+      setEvents((e) => ["A hết thời gian - B thắng!", ...e]);
+      socket?.emit('game-over', { roomId, winner: 'B' });
+      try {
+        const user = JSON.parse(localStorage.getItem('user') || 'null');
+        fetch(`${API_URL}/rooms/finish`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomId, winnerUserId: user?.id }),
+        }).catch(() => {});
+      } catch {}
+    }
+    if (timeB <= 0) {
+      setGameOver({ winner: 'A' });
+      setEvents((e) => ["B hết thời gian - A thắng!", ...e]);
+      socket?.emit('game-over', { roomId, winner: 'A' });
+      try {
+        const user = JSON.parse(localStorage.getItem('user') || 'null');
+        fetch(`${API_URL}/rooms/finish`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomId, winnerUserId: user?.id }),
+        }).catch(() => {});
+      } catch {}
+    }
+  }, [timeA, timeB, gameOver]);
+
+  // Simple WebAudio sound mapper per animal type (lightweight, no assets)
+  function getAudioContext(): AudioContext | null {
+    if (typeof window === 'undefined') return null;
+    if (!audioCtxRef.current) {
+      const Ctor = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!Ctor) return null;
+      audioCtxRef.current = new Ctor();
+    }
+    return audioCtxRef.current;
+  }
+
+  function playPieceSound(type: keyof typeof PIECE_TYPES) {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    // rate limit to avoid overlap spam
+    if (now - lastSoundAtRef.current < 0.08) return;
+    lastSoundAtRef.current = now;
+
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 1200;
+    o.connect(filter).connect(g).connect(ctx.destination);
+
+    // Defaults
+    let freq = 440;
+    let typeOsc: OscillatorType = 'sawtooth';
+    let duration = 0.18;
+    let attack = 0.005;
+    let decay = 0.15;
+
+    switch (type) {
+      case 'lion':
+        freq = 140; typeOsc = 'square'; duration = 0.35; filter.frequency.value = 500; break;
+      case 'tiger':
+        freq = 180; typeOsc = 'square'; duration = 0.28; filter.frequency.value = 650; break;
+      case 'leopard':
+        freq = 260; typeOsc = 'sawtooth'; duration = 0.22; break;
+      case 'dog':
+        freq = 220; typeOsc = 'square'; duration = 0.16; break;
+      case 'wolf':
+        freq = 200; typeOsc = 'triangle'; duration = 0.22; break;
+      case 'cat':
+        freq = 520; typeOsc = 'triangle'; duration = 0.12; break;
+      case 'rat':
+        freq = 880; typeOsc = 'square'; duration = 0.08; break;
+      case 'elephant':
+        freq = 100; typeOsc = 'sine'; duration = 0.32; filter.frequency.value = 400; break;
+      default:
+        break;
+    }
+
+    o.type = typeOsc;
+    o.frequency.setValueAtTime(freq, now);
+
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(0.4, now + attack);
+    g.gain.exponentialRampToValueAtTime(0.001, now + attack + decay);
+
+    o.start(now);
+    o.stop(now + duration);
+  }
 
   const socket: Socket | null = useMemo(() => {
     if (typeof window === 'undefined' || !roomId) return null;
@@ -101,6 +258,11 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
         next[move.from.x][move.from.y] = null;
         return next;
       });
+      // Play sound for opponent move
+      const movedPiece = board[move.to.x]?.[move.to.y] || board[move.from.x]?.[move.from.y];
+      if (movedPiece) {
+        playPieceSound(movedPiece.type);
+      }
       setCurrentPlayer((p) => (p === 'A' ? 'B' : 'A'));
     });
 
@@ -246,6 +408,8 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
 
   function handleCellClick(x: number, y: number) {
     if (gameOver) return; // no moves after finish
+    // Only allow moving when it's this user's turn
+    if (!mySide || currentPlayer !== mySide) return;
     if (selectedPiece) {
       // Try to move piece
       if (isValidMove(selectedPiece.x, selectedPiece.y, x, y)) {
@@ -257,6 +421,9 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
         newBoard[selectedPiece.x][selectedPiece.y] = null;
         
         setBoard(newBoard);
+        if (piece) {
+          playPieceSound(piece.type);
+        }
         const mover = piece!.owner;
 
         // Win conditions
@@ -283,8 +450,10 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
         
         // Send move to server
         if (socket && roomId) {
+          const user = JSON.parse(localStorage.getItem('user') || 'null');
           socket.emit('move', {
             roomId,
+            userId: user?.id,
             move: { from: selectedPiece, to: { x, y } },
           });
         }
@@ -295,7 +464,7 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
     } else {
       // Select piece
       const piece = board[x][y];
-      if (!gameOver && piece && piece.owner === currentPlayer) {
+      if (!gameOver && piece && mySide && piece.owner === mySide && currentPlayer === mySide) {
         setSelectedPiece({ x, y });
       }
     }
@@ -326,18 +495,32 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
         <div className="grid grid-2 gap-6">
           {/* Game Board */}
           <div className="card p-6">
+            {/* Top player: later joiner (guest) */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <img
+                  src={guestUserId ? avatarFor(guestUserId) : avatarFor('opponent')}
+                  alt="opponent"
+                  className="w-8 h-8 rounded-full"
+                />
+                <div className="text-sm text-gray-600">
+                  {guestUserId ? `Người chơi (vào sau): ${guestUserId.slice(0,8)}...` : 'Chờ đối thủ tham gia'}
+                </div>
+              </div>
+              <span className="status-badge status-playing">Đối thủ</span>
+            </div>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
                 <Gamepad2 className="w-5 h-5" />
                 Bàn Cờ
               </h2>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">Lượt: </span>
-                <span className={`px-2 py-1 rounded text-sm font-semibold ${
-                  currentPlayer === 'A' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'
-                }`}>
-                  Người chơi {currentPlayer}
-                </span>
+              <div className="flex items-center gap-4">
+                <div className={`px-2 py-1 rounded text-sm font-semibold ${currentPlayer === 'A' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'}`}>
+                  Lượt: {currentPlayer}
+                </div>
+                <div className="text-sm text-gray-700 font-semibold">
+                  A: {formatTime(timeA)} | B: {formatTime(timeB)}
+                </div>
               </div>
             </div>
             
@@ -379,6 +562,22 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
                   'Click vào quân cờ để chọn, sau đó click ô đích để di chuyển'
                 }
               </p>
+            </div>
+
+            {/* Bottom player: always self */}
+            <div className="flex items-center justify-between mt-4">
+              <span className="status-badge status-playing">Bạn</span>
+              <div className="flex items-center gap-2">
+                <div className="text-right">
+                  <div className="text-sm font-semibold text-gray-800">{selfUser?.name || selfUser?.email || 'Bạn'}</div>
+                  <div className="text-xs text-gray-500">{selfUser?.id ? selfUser.id.slice(0,8) + '...' : ''}</div>
+                </div>
+                <img
+                  src={selfUser?.avatar || avatarFor(selfUser?.id)}
+                  alt="me"
+                  className="w-8 h-8 rounded-full"
+                />
+              </div>
             </div>
           </div>
 

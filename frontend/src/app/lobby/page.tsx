@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { getUserWithAvatar } from '@/lib/user';
 import Link from 'next/link';
 import { Plus, RefreshCw, Users, ArrowLeft, Trophy, Clock } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 interface Room {
   id: string;
@@ -17,7 +18,7 @@ export default function LobbyPage() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const user = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || 'null') : null;
+  const user = typeof window !== 'undefined' ? getUserWithAvatar() : null;
 
   async function loadRooms() {
     setLoading(true);
@@ -54,15 +55,27 @@ export default function LobbyPage() {
     }
   }
 
-  async function joinRoom(roomId: string) {
+  function isUserInRoom(room: Room): boolean {
+    if (!user) return false;
+    return room.hostUserId === user.id || room.guestUserId === user.id;
+  }
+
+  async function enterRoom(room: Room) {
     if (!user) return alert('Vui lòng đăng nhập');
+    // If user already belongs to the room, just continue
+    if (isUserInRoom(room)) {
+      window.location.href = `/game/${room.id}`;
+      return;
+    }
+    // Otherwise, attempt to join if room is waiting
+    if (room.status !== 'waiting') return alert('Phòng đang chơi, vui lòng chọn phòng khác');
     try {
       await fetch(`${API_URL}/rooms/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomId, userId: user.id }),
+        body: JSON.stringify({ roomId: room.id, userId: user.id }),
       });
-      window.location.href = `/game/${roomId}`;
+      window.location.href = `/game/${room.id}`;
     } catch (error) {
       alert('Lỗi tham gia phòng');
     }
@@ -95,10 +108,8 @@ export default function LobbyPage() {
               <div className="flex items-center gap-4">
                 {user ? (
                   <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                      <Users className="w-4 h-4 text-white" />
-                    </div>
-                    <span className="text-gray-700 font-semibold">{user.email}</span>
+                    <img src={user.avatar} alt="avatar" className="w-8 h-8 rounded-full" />
+                    <span className="text-gray-700 font-semibold">{user.name || user.email || 'Người chơi'}</span>
                   </div>
                 ) : (
                   <div className="text-gray-600">
@@ -169,14 +180,20 @@ export default function LobbyPage() {
                         {room.guestUserId ? '2/2 người chơi' : '1/2 người chơi'}
                       </span>
                     </div>
-                    
-                    <button
-                      onClick={() => joinRoom(room.id)}
-                      disabled={!user || room.status !== 'waiting'}
-                      className={`btn ${room.status === 'waiting' ? 'btn-success' : 'btn-secondary'} text-sm`}
-                    >
-                      {room.status === 'waiting' ? 'Tham gia' : 'Đang chơi'}
-                    </button>
+                    {(() => {
+                      const userCanEnter = !!user && (room.status === 'waiting' || isUserInRoom(room));
+                      const label = room.status === 'waiting' ? 'Tham gia' : (isUserInRoom(room) ? 'Tiếp tục' : 'Đang chơi');
+                      const btnClass = userCanEnter ? 'btn-success' : 'btn-secondary';
+                      return (
+                        <button
+                          onClick={() => enterRoom(room)}
+                          disabled={!userCanEnter}
+                          className={`btn ${btnClass} text-sm`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               ))}

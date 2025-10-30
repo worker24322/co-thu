@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { setStoredUser } from '@/lib/user';
+import { ArrowLeft, Lock, Mail, UserPlus } from 'lucide-react';
 import Link from 'next/link';
-import { UserPlus, ArrowLeft, Mail, Lock } from 'lucide-react';
+import { useState } from 'react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 export default function RegisterPage() {
   const [email, setEmail] = useState('');
@@ -31,7 +32,7 @@ export default function RegisterPage() {
       }
       
       localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      setStoredUser(data.user);
       setMessage('Đăng ký thành công! Chuyển hướng đến trang chủ...');
       
       setTimeout(() => {

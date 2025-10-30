@@ -1,6 +1,9 @@
 import { Server, Socket } from 'socket.io';
+import { RoomsService } from './rooms.service';
 export declare class RoomsGateway {
+    private readonly roomsService;
     server: Server;
+    constructor(roomsService: RoomsService);
     handleJoin(data: {
         roomId: string;
         userId: string;
@@ -8,6 +11,7 @@ export declare class RoomsGateway {
     handleMove(data: {
         roomId: string;
         move: any;
+        userId?: string;
     }, client: Socket): void;
     handleSyncState(data: {
         roomId: string;

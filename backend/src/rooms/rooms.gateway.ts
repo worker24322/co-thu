@@ -6,11 +6,14 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { RoomsService } from './rooms.service';
 
 @WebSocketGateway({ cors: { origin: true, credentials: true } })
 export class RoomsGateway {
   @WebSocketServer()
   server: Server;
+
+  constructor(private readonly roomsService: RoomsService) {}
 
   @SubscribeMessage('join-room')
   handleJoin(
@@ -23,11 +26,25 @@ export class RoomsGateway {
 
   @SubscribeMessage('move')
   handleMove(
-    @MessageBody() data: { roomId: string; move: any },
+    @MessageBody() data: { roomId: string; move: any; userId?: string },
     @ConnectedSocket() client: Socket,
   ) {
-    // Broadcast to room EXCLUDING sender
-    client.to(data.roomId).emit('move', data.move);
+    // Validate participant
+    if (!data?.roomId) return;
+    const roomId = data.roomId;
+    const userId = data.userId;
+    if (!userId) return; // ignore if unknown user
+    this.roomsService
+      .list()
+      .then((rooms) => {
+        const room = rooms.find((r) => (r as any).id === roomId);
+        if (!room) return;
+        const isMember = (room as any).hostUserId === userId || (room as any).guestUserId === userId;
+        if (!isMember) return;
+        // Broadcast to room EXCLUDING sender
+        client.to(roomId).emit('move', data.move);
+      })
+      .catch(() => {});
   }
 
   @SubscribeMessage('sync-state')
