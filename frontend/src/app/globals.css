@@ -15,7 +15,7 @@ body {
   /* Fluid cell size for responsive board */
   --cell-size: clamp(32px, 9vw, 60px);
   --board-gap: 2px;
-  --board-pad: clamp(8px, 2vw, 20px);
+  --board-pad: clamp(6px, 1.2vw, 12px);
 }
 
 .container {
@@ -151,11 +151,14 @@ body {
   border-radius: 16px;
   box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.25);
   /* Ensure the wooden frame matches grid size; center it */
-  width: calc(var(--cell-size) * 7 + var(--board-gap) * 6 + var(--board-pad) * 2);
+  width: min(100%, calc(var(--cell-size) * 7 + var(--board-gap) * 6 + var(--board-pad) * 2));
   height: calc(var(--cell-size) * 9 + var(--board-gap) * 8 + var(--board-pad) * 2);
   margin-left: auto;
   margin-right: auto;
 }
+
+/* Remove extra padding for the card that wraps the board (modern browsers) */
+.card:has(.game-board) { padding: 0; }
 
 .game-cell {
   background: #d9b48a;
@@ -259,13 +262,17 @@ body {
 
 /* ------------ Responsive Layout ------------- */
 @media (max-width: 640px) {
-  :root { --cell-size: clamp(32px, 9.5vw, 40px); }
+  :root {
+    --cell-size: clamp(34px, 12.5vw, 44px);
+    --board-pad: clamp(4px, 1vw, 10px);
+  }
 
   .container { padding: 0; }
   .card { border-radius: 16px; }
 
-  .p-8 { padding: 0.75rem; }
-  .p-6 { padding: 0.5rem; }
+  .p-8 { padding: 0.75rem 0; }
+  .p-6 { padding: 0.5rem 0; }
+  .p-4 { padding-left: 0; padding-right: 0; }
 
   .grid-3 { grid-template-columns: 1fr; }
   .grid-2 { grid-template-columns: 1fr; }
@@ -285,7 +292,10 @@ body {
 }
 
 @media (min-width: 641px) and (max-width: 1024px) {
-  :root { --cell-size: clamp(40px, 6vw, 50px); }
+  :root {
+    --cell-size: clamp(44px, 8vw, 56px);
+    --board-pad: clamp(6px, 1.2vw, 12px);
+  }
   .container { padding: 0 8px; }
   /* Stack board and side panels vertically for tablet for better readability */
   .grid-2 { grid-template-columns: 1fr; }

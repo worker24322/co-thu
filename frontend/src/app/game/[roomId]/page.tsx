@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { ArrowLeft, Users, MessageSquare, Gamepad2 } from 'lucide-react';
@@ -33,9 +33,14 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
   const [selectedPiece, setSelectedPiece] = useState<{x: number, y: number} | null>(null);
   const [currentPlayer, setCurrentPlayer] = useState<'A' | 'B'>('A');
   const [gameOver, setGameOver] = useState<{ winner: 'A' | 'B' | null } | null>(null);
+  const [timeA, setTimeA] = useState<number>(600); // seconds
+  const [timeB, setTimeB] = useState<number>(600);
   const [selfUser, setSelfUser] = useState<{ id: string; name?: string; email?: string; avatar?: string } | null>(null);
   const [hostUserId, setHostUserId] = useState<string | null>(null);
   const [guestUserId, setGuestUserId] = useState<string | null>(null);
+  const [mySide, setMySide] = useState<'A' | 'B' | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const lastSoundAtRef = useRef<number>(0);
 
   // Initialize board with all pieces
   const [board, setBoard] = useState<(Piece | null)[][]>(() => {
@@ -96,6 +101,12 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
           if (room) {
             setHostUserId(room.hostUserId || null);
             setGuestUserId(room.guestUserId || null);
+            const u = JSON.parse(localStorage.getItem('user') || 'null');
+            if (u?.id) {
+              if (room.hostUserId === u.id) setMySide('A');
+              else if (room.guestUserId === u.id) setMySide('B');
+              else setMySide(null);
+            }
           }
         } catch {}
       })
@@ -106,6 +117,121 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
     const s = encodeURIComponent(seed || 'guest');
     return `https://api.dicebear.com/7.x/identicon/svg?seed=${s}`;
   };
+
+  function formatTime(totalSeconds: number): string {
+    const m = Math.max(0, Math.floor(totalSeconds / 60));
+    const s = Math.max(0, totalSeconds % 60);
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+
+  // Turn timer: counts down only for the side whose turn it is
+  useEffect(() => {
+    if (!roomId || gameOver) return;
+    const id = setInterval(() => {
+      if (currentPlayer === 'A') {
+        setTimeA((t) => Math.max(0, t - 1));
+      } else {
+        setTimeB((t) => Math.max(0, t - 1));
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [roomId, currentPlayer, gameOver]);
+
+  // Detect flag fall (time out)
+  useEffect(() => {
+    if (gameOver) return;
+    if (timeA <= 0) {
+      setGameOver({ winner: 'B' });
+      setEvents((e) => ["A hết thời gian - B thắng!", ...e]);
+      socket?.emit('game-over', { roomId, winner: 'B' });
+      try {
+        const user = JSON.parse(localStorage.getItem('user') || 'null');
+        fetch(`${API_URL}/rooms/finish`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomId, winnerUserId: user?.id }),
+        }).catch(() => {});
+      } catch {}
+    }
+    if (timeB <= 0) {
+      setGameOver({ winner: 'A' });
+      setEvents((e) => ["B hết thời gian - A thắng!", ...e]);
+      socket?.emit('game-over', { roomId, winner: 'A' });
+      try {
+        const user = JSON.parse(localStorage.getItem('user') || 'null');
+        fetch(`${API_URL}/rooms/finish`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomId, winnerUserId: user?.id }),
+        }).catch(() => {});
+      } catch {}
+    }
+  }, [timeA, timeB, gameOver]);
+
+  // Simple WebAudio sound mapper per animal type (lightweight, no assets)
+  function getAudioContext(): AudioContext | null {
+    if (typeof window === 'undefined') return null;
+    if (!audioCtxRef.current) {
+      const Ctor = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!Ctor) return null;
+      audioCtxRef.current = new Ctor();
+    }
+    return audioCtxRef.current;
+  }
+
+  function playPieceSound(type: keyof typeof PIECE_TYPES) {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    // rate limit to avoid overlap spam
+    if (now - lastSoundAtRef.current < 0.08) return;
+    lastSoundAtRef.current = now;
+
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 1200;
+    o.connect(filter).connect(g).connect(ctx.destination);
+
+    // Defaults
+    let freq = 440;
+    let typeOsc: OscillatorType = 'sawtooth';
+    let duration = 0.18;
+    let attack = 0.005;
+    let decay = 0.15;
+
+    switch (type) {
+      case 'lion':
+        freq = 140; typeOsc = 'square'; duration = 0.35; filter.frequency.value = 500; break;
+      case 'tiger':
+        freq = 180; typeOsc = 'square'; duration = 0.28; filter.frequency.value = 650; break;
+      case 'leopard':
+        freq = 260; typeOsc = 'sawtooth'; duration = 0.22; break;
+      case 'dog':
+        freq = 220; typeOsc = 'square'; duration = 0.16; break;
+      case 'wolf':
+        freq = 200; typeOsc = 'triangle'; duration = 0.22; break;
+      case 'cat':
+        freq = 520; typeOsc = 'triangle'; duration = 0.12; break;
+      case 'rat':
+        freq = 880; typeOsc = 'square'; duration = 0.08; break;
+      case 'elephant':
+        freq = 100; typeOsc = 'sine'; duration = 0.32; filter.frequency.value = 400; break;
+      default:
+        break;
+    }
+
+    o.type = typeOsc;
+    o.frequency.setValueAtTime(freq, now);
+
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(0.4, now + attack);
+    g.gain.exponentialRampToValueAtTime(0.001, now + attack + decay);
+
+    o.start(now);
+    o.stop(now + duration);
+  }
 
   const socket: Socket | null = useMemo(() => {
     if (typeof window === 'undefined' || !roomId) return null;
@@ -132,6 +258,11 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
         next[move.from.x][move.from.y] = null;
         return next;
       });
+      // Play sound for opponent move
+      const movedPiece = board[move.to.x]?.[move.to.y] || board[move.from.x]?.[move.from.y];
+      if (movedPiece) {
+        playPieceSound(movedPiece.type);
+      }
       setCurrentPlayer((p) => (p === 'A' ? 'B' : 'A'));
     });
 
@@ -277,6 +408,8 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
 
   function handleCellClick(x: number, y: number) {
     if (gameOver) return; // no moves after finish
+    // Only allow moving when it's this user's turn
+    if (!mySide || currentPlayer !== mySide) return;
     if (selectedPiece) {
       // Try to move piece
       if (isValidMove(selectedPiece.x, selectedPiece.y, x, y)) {
@@ -288,6 +421,9 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
         newBoard[selectedPiece.x][selectedPiece.y] = null;
         
         setBoard(newBoard);
+        if (piece) {
+          playPieceSound(piece.type);
+        }
         const mover = piece!.owner;
 
         // Win conditions
@@ -314,8 +450,10 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
         
         // Send move to server
         if (socket && roomId) {
+          const user = JSON.parse(localStorage.getItem('user') || 'null');
           socket.emit('move', {
             roomId,
+            userId: user?.id,
             move: { from: selectedPiece, to: { x, y } },
           });
         }
@@ -326,7 +464,7 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
     } else {
       // Select piece
       const piece = board[x][y];
-      if (!gameOver && piece && piece.owner === currentPlayer) {
+      if (!gameOver && piece && mySide && piece.owner === mySide && currentPlayer === mySide) {
         setSelectedPiece({ x, y });
       }
     }
@@ -376,13 +514,13 @@ export default function GamePage({ params }: { params: Promise<{ roomId: string 
                 <Gamepad2 className="w-5 h-5" />
                 Bàn Cờ
               </h2>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">Lượt: </span>
-                <span className={`px-2 py-1 rounded text-sm font-semibold ${
-                  currentPlayer === 'A' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'
-                }`}>
-                  Người chơi {currentPlayer}
-                </span>
+              <div className="flex items-center gap-4">
+                <div className={`px-2 py-1 rounded text-sm font-semibold ${currentPlayer === 'A' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'}`}>
+                  Lượt: {currentPlayer}
+                </div>
+                <div className="text-sm text-gray-700 font-semibold">
+                  A: {formatTime(timeA)} | B: {formatTime(timeB)}
+                </div>
               </div>
             </div>
             

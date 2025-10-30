@@ -15,14 +15,36 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.RoomsGateway = void 0;
 const websockets_1 = require("@nestjs/websockets");
 const socket_io_1 = require("socket.io");
+const rooms_service_1 = require("./rooms.service");
 let RoomsGateway = class RoomsGateway {
+    roomsService;
     server;
+    constructor(roomsService) {
+        this.roomsService = roomsService;
+    }
     handleJoin(data, client) {
         client.join(data.roomId);
         this.server.to(data.roomId).emit('player-joined', data.userId);
     }
     handleMove(data, client) {
-        client.to(data.roomId).emit('move', data.move);
+        if (!data?.roomId)
+            return;
+        const roomId = data.roomId;
+        const userId = data.userId;
+        if (!userId)
+            return;
+        this.roomsService
+            .list()
+            .then((rooms) => {
+            const room = rooms.find((r) => r.id === roomId);
+            if (!room)
+                return;
+            const isMember = room.hostUserId === userId || room.guestUserId === userId;
+            if (!isMember)
+                return;
+            client.to(roomId).emit('move', data.move);
+        })
+            .catch(() => { });
     }
     handleSyncState(data, client) {
         client.to(data.roomId).emit('sync-state', data.state);
@@ -69,6 +91,7 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], RoomsGateway.prototype, "handleGameOver", null);
 exports.RoomsGateway = RoomsGateway = __decorate([
-    (0, websockets_1.WebSocketGateway)({ cors: { origin: true, credentials: true } })
+    (0, websockets_1.WebSocketGateway)({ cors: { origin: true, credentials: true } }),
+    __metadata("design:paramtypes", [rooms_service_1.RoomsService])
 ], RoomsGateway);
 //# sourceMappingURL=rooms.gateway.js.map
